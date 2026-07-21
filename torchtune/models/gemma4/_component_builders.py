@@ -32,6 +32,7 @@ from torchtune.models.gemma4._attention import (
     Gemma4RMSNorm,
     Gemma4RotaryEmbedding,
 )
+from torchtune.models.gemma4._moe import Gemma4Experts, Gemma4Router
 from torchtune.modules.low_precision.nf4_linear import FrozenNF4Linear
 from torchtune.modules.peft import DoRALinear, LORA_ATTN_MODULES, LoRALinear
 
@@ -107,6 +108,10 @@ class Gemma4DecoderLayer(nn.Module):
         store_full_length_kv: bool,
         layer_type: str,
         value_eq_key: bool,
+        enable_moe: bool,
+        num_experts: int,
+        top_k_experts: int,
+        moe_intermediate_size: int,
         lora_attn_modules: list,
         apply_lora_to_mlp: bool,
         lora_rank: int,
@@ -117,6 +122,7 @@ class Gemma4DecoderLayer(nn.Module):
     ):
         super().__init__()
         self.has_ple = per_layer_dim > 0
+        self.enable_moe = enable_moe
 
         def proj(name, in_dim, out_dim, lora):
             return _make_linear(in_dim, out_dim, lora=lora, rank=lora_rank,
@@ -155,6 +161,19 @@ class Gemma4DecoderLayer(nn.Module):
             self.per_layer_input_gate = nn.Linear(embed_dim, per_layer_dim, bias=False)
             self.per_layer_projection = nn.Linear(per_layer_dim, embed_dim, bias=False)
             self.post_per_layer_input_norm = Gemma4RMSNorm(embed_dim, eps=norm_eps)
+        if self.enable_moe:
+            # Hybrid MoE: experts run alongside the dense MLP and their outputs are summed.
+            self.router = Gemma4Router(
+                hidden_size=embed_dim, num_experts=num_experts,
+                top_k=top_k_experts, norm_eps=norm_eps,
+            )
+            self.experts = Gemma4Experts(
+                num_experts=num_experts, hidden_size=embed_dim,
+                moe_intermediate_size=moe_intermediate_size,
+            )
+            self.post_feedforward_layernorm_1 = Gemma4RMSNorm(embed_dim, eps=norm_eps)
+            self.post_feedforward_layernorm_2 = Gemma4RMSNorm(embed_dim, eps=norm_eps)
+            self.pre_feedforward_layernorm_2 = Gemma4RMSNorm(embed_dim, eps=norm_eps)
         self.register_buffer("layer_scalar", torch.ones(1))
 
     def forward(
@@ -176,6 +195,17 @@ class Gemma4DecoderLayer(nn.Module):
         residual = h
         h = self.pre_feedforward_layernorm(h)
         h = self.mlp(h)
+        if self.enable_moe:
+            # Dense MLP path (normed) + experts path (routed on the pre-norm residual),
+            # each with its own norm, summed. Matches HF Gemma4TextDecoderLayer.
+            dense = self.post_feedforward_layernorm_1(h)
+            flat = residual.reshape(-1, residual.shape[-1])
+            top_k_weights, top_k_index = self.router(flat)
+            experts_out = self.experts(
+                self.pre_feedforward_layernorm_2(flat), top_k_index, top_k_weights
+            )
+            experts_out = self.post_feedforward_layernorm_2(experts_out.reshape(residual.shape))
+            h = dense + experts_out
         h = self.post_feedforward_layernorm(h)
         h = residual + h
 
@@ -221,6 +251,10 @@ class Gemma4TextDecoder(nn.Module):
         global_every: int,
         num_global_key_value_heads: Optional[int] = None,
         attention_k_eq_v: bool = False,
+        enable_moe_block: bool = False,
+        num_experts: int = 0,
+        top_k_experts: int = 0,
+        moe_intermediate_size: int = 0,
         lora_attn_modules: Optional[list] = None,
         apply_lora_to_mlp: bool = False,
         lora_rank: int = 0,
@@ -291,6 +325,10 @@ class Gemma4TextDecoder(nn.Module):
                     store_full_length_kv=(store_idx[lt] == i),
                     layer_type=lt,
                     value_eq_key=use_alt,
+                    enable_moe=enable_moe_block,
+                    num_experts=num_experts,
+                    top_k_experts=top_k_experts,
+                    moe_intermediate_size=moe_intermediate_size,
                     lora_attn_modules=lora_attn_modules,
                     apply_lora_to_mlp=apply_lora_to_mlp,
                     lora_rank=lora_rank,

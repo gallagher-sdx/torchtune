@@ -14,10 +14,13 @@ from torchtune.models.gemma4._convert_weights import (
     gemma4_tune_to_hf,
 )
 from torchtune.models.gemma4._model_builders import (
+    gemma4_26b_a4b,
     gemma4_31b,
     gemma4_e4b,
+    lora_gemma4_26b_a4b,
     lora_gemma4_31b,
     lora_gemma4_e4b,
+    qlora_gemma4_26b_a4b,
     qlora_gemma4_31b,
     qlora_gemma4_e4b,
 )
@@ -29,10 +32,13 @@ __all__ = [
     "lora_gemma4",
     "gemma4_e4b",
     "gemma4_31b",
+    "gemma4_26b_a4b",
     "lora_gemma4_e4b",
     "lora_gemma4_31b",
+    "lora_gemma4_26b_a4b",
     "qlora_gemma4_e4b",
     "qlora_gemma4_31b",
+    "qlora_gemma4_26b_a4b",
     "gemma4_tokenizer",
     "Gemma4Tokenizer",
     "gemma4_hf_to_tune",

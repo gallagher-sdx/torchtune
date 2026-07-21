@@ -39,6 +39,16 @@ _GEMMA4_FROM_HF = {
     f"{_P}layers.{{}}.post_attention_layernorm.weight": "layers.{}.post_attention_layernorm.scale",
     f"{_P}layers.{{}}.pre_feedforward_layernorm.weight": "layers.{}.pre_feedforward_layernorm.scale",
     f"{_P}layers.{{}}.post_feedforward_layernorm.weight": "layers.{}.post_feedforward_layernorm.scale",
+    # MoE (26B-A4B): router + stacked experts + the hybrid block's extra norms. Absent for
+    # dense models (E4B / 31B), so these entries are simply unused there.
+    f"{_P}layers.{{}}.router.proj.weight": "layers.{}.router.proj.weight",
+    f"{_P}layers.{{}}.router.scale": "layers.{}.router.scale",
+    f"{_P}layers.{{}}.router.per_expert_scale": "layers.{}.router.per_expert_scale",
+    f"{_P}layers.{{}}.experts.gate_up_proj": "layers.{}.experts.gate_up_proj",
+    f"{_P}layers.{{}}.experts.down_proj": "layers.{}.experts.down_proj",
+    f"{_P}layers.{{}}.post_feedforward_layernorm_1.weight": "layers.{}.post_feedforward_layernorm_1.scale",
+    f"{_P}layers.{{}}.post_feedforward_layernorm_2.weight": "layers.{}.post_feedforward_layernorm_2.scale",
+    f"{_P}layers.{{}}.pre_feedforward_layernorm_2.weight": "layers.{}.pre_feedforward_layernorm_2.scale",
     f"{_P}layers.{{}}.per_layer_input_gate.weight": "layers.{}.per_layer_input_gate.weight",
     f"{_P}layers.{{}}.per_layer_projection.weight": "layers.{}.per_layer_projection.weight",
     f"{_P}layers.{{}}.post_per_layer_input_norm.weight": "layers.{}.post_per_layer_input_norm.scale",
