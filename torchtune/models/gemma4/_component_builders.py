@@ -106,6 +106,7 @@ class Gemma4DecoderLayer(nn.Module):
         is_kv_shared: bool,
         store_full_length_kv: bool,
         layer_type: str,
+        value_eq_key: bool,
         lora_attn_modules: list,
         apply_lora_to_mlp: bool,
         lora_rank: int,
@@ -128,7 +129,12 @@ class Gemma4DecoderLayer(nn.Module):
             k_proj = v_proj = None
         else:
             k_proj = proj("k_proj", embed_dim, num_kv_heads * head_dim, "k_proj" in lora_attn_modules)
-            v_proj = proj("v_proj", embed_dim, num_kv_heads * head_dim, "v_proj" in lora_attn_modules)
+            # attention_k_eq_v: no separate value projection (value reuses the key proj).
+            v_proj = (
+                None
+                if value_eq_key
+                else proj("v_proj", embed_dim, num_kv_heads * head_dim, "v_proj" in lora_attn_modules)
+            )
         self.self_attn = Gemma4Attention(
             num_heads=num_heads, num_kv_heads=num_kv_heads, head_dim=head_dim,
             norm_eps=norm_eps, q_proj=q_proj, o_proj=o_proj, k_proj=k_proj, v_proj=v_proj,
@@ -213,6 +219,8 @@ class Gemma4TextDecoder(nn.Module):
         rope_base_global: float,
         global_partial_rotary_factor: float,
         global_every: int,
+        num_global_key_value_heads: Optional[int] = None,
+        attention_k_eq_v: bool = False,
         lora_attn_modules: Optional[list] = None,
         apply_lora_to_mlp: bool = False,
         lora_rank: int = 0,
@@ -264,12 +272,17 @@ class Gemma4TextDecoder(nn.Module):
         layers = []
         for i in range(num_layers):
             lt = self.layer_types[i]
+            is_global = lt == "full_attention"
+            # Gemma 4 31B: global layers use `attention_k_eq_v` (value == key, no v_proj)
+            # with a distinct, smaller KV-head count. E4B leaves both unset (normal GQA).
+            use_alt = attention_k_eq_v and is_global
+            layer_kv_heads = num_global_key_value_heads if use_alt else num_kv_heads
             layers.append(
                 Gemma4DecoderLayer(
                     embed_dim=embed_dim,
                     num_heads=num_heads,
-                    num_kv_heads=num_kv_heads,
-                    head_dim=global_head_dim if lt == "full_attention" else head_dim,
+                    num_kv_heads=layer_kv_heads,
+                    head_dim=global_head_dim if is_global else head_dim,
                     intermediate_dim=intermediate_dim,
                     per_layer_dim=per_layer_dim,
                     norm_eps=norm_eps,
@@ -277,6 +290,7 @@ class Gemma4TextDecoder(nn.Module):
                     is_kv_shared=(i >= first_shared),
                     store_full_length_kv=(store_idx[lt] == i),
                     layer_type=lt,
+                    value_eq_key=use_alt,
                     lora_attn_modules=lora_attn_modules,
                     apply_lora_to_mlp=apply_lora_to_mlp,
                     lora_rank=lora_rank,

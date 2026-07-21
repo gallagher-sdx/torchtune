@@ -181,10 +181,15 @@ class Gemma4Attention(nn.Module):
         if self.is_kv_shared:
             k, v = shared_kv[self.layer_type]
         else:
-            k = self.k_proj(x).view(b, s, self.num_kv_heads, self.head_dim)
-            k = self.k_norm(k)
+            k_raw = self.k_proj(x).view(b, s, self.num_kv_heads, self.head_dim)
+            k = self.k_norm(k_raw)
             k = apply_rotary_pos_emb(k, cos, sin).transpose(1, 2)  # [b, nkv, s, hd]
-            v = self.v_proj(x).view(b, s, self.num_kv_heads, self.head_dim)
+            if self.v_proj is not None:
+                v = self.v_proj(x).view(b, s, self.num_kv_heads, self.head_dim)
+            else:
+                # attention_k_eq_v: value reuses the key projection (pre-norm, pre-RoPE),
+                # with its own (unscaled) v_norm. Used by global layers in e.g. Gemma 4 31B.
+                v = k_raw
             v = self.v_norm(v).transpose(1, 2)
             if self.store_full_length_kv:
                 shared_kv[self.layer_type] = (k, v)

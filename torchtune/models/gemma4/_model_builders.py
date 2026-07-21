@@ -36,6 +36,8 @@ _31B = dict(
     norm_eps=1e-6, final_logit_softcapping=30.0,
     rope_base_sliding=10_000.0, rope_base_global=1_000_000.0,
     global_partial_rotary_factor=0.25, global_every=6,
+    # Global (full-attention) layers use value==key attention with 4 KV heads.
+    num_global_key_value_heads=4, attention_k_eq_v=True,
 )
 
 
