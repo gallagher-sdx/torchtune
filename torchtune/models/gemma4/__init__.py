@@ -21,6 +21,7 @@ from torchtune.models.gemma4._model_builders import (
     qlora_gemma4_31b,
     qlora_gemma4_e4b,
 )
+from torchtune.models.gemma4._tokenizer import Gemma4Tokenizer, gemma4_tokenizer
 
 __all__ = [
     "gemma4",
@@ -32,6 +33,8 @@ __all__ = [
     "lora_gemma4_31b",
     "qlora_gemma4_e4b",
     "qlora_gemma4_31b",
+    "gemma4_tokenizer",
+    "Gemma4Tokenizer",
     "gemma4_hf_to_tune",
     "gemma4_tune_to_hf",
 ]

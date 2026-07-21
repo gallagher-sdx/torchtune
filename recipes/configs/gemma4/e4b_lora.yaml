@@ -2,13 +2,8 @@
 # in lora_finetune_distributed.py.
 #
 # Prerequisites:
-#   * Weights: google/gemma-4-e4b-it (already cached under ~/.cache/huggingface). Point
-#     checkpointer.checkpoint_dir at the snapshot directory (contains model.safetensors).
-#   * TOKENIZER (open item): Gemma 4 ships an HF `tokenizer.json` (fast-tokenizers format),
-#     NOT a SentencePiece `tokenizer.model`. torchtune's gemma_tokenizer expects a
-#     SentencePiece model, so a gemma4 tokenizer wrapper around tokenizer.json is still
-#     needed before this config can run end-to-end. The `_component_` below is a
-#     placeholder to be replaced once that tokenizer lands.
+#   * Weights: google/gemma-4-e4b-it. Point checkpointer.checkpoint_dir at the snapshot
+#     directory (contains model.safetensors, tokenizer.json, chat_template.jinja, ...).
 #
 # Launch (4 devices):
 #   tune run --nnodes 1 --nproc_per_node 4 lora_finetune_distributed --config gemma4/e4b_lora
@@ -17,10 +12,11 @@
 
 output_dir: /tmp/torchtune/gemma4_e4b/lora
 
-# Tokenizer — PLACEHOLDER (see prerequisites above).
+# Tokenizer — Gemma 4 uses an HF fast tokenizer (tokenizer.json) + chat_template.jinja,
+# both auto-discovered next to the given path.
 tokenizer:
-  _component_: torchtune.models.gemma.gemma_tokenizer
-  path: /PATH/TO/gemma-4-e4b/tokenizer.model  # TODO: gemma4 uses tokenizer.json
+  _component_: torchtune.models.gemma4.gemma4_tokenizer
+  path: /PATH/TO/gemma-4-e4b-it/tokenizer.json
 
 # Dataset and Sampler
 dataset:
