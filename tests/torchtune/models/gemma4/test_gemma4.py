@@ -87,3 +87,38 @@ class TestGemma4:
         assert set(back.keys()) == set(tune_sd.keys())
         for k in tune_sd:
             assert back[k].shape == tune_sd[k].shape
+
+    def test_k_eq_v_global_attention(self):
+        """31B-style: global layers use value==key with a distinct KV-head count."""
+        cfg = {**TINY, "per_layer_dim": 0, "num_kv_shared_layers": 0,
+               "num_global_key_value_heads": 1, "attention_k_eq_v": True}
+        model = gemma4(**cfg)
+        # global layers (idx 2, 5) drop v_proj and use the global KV-head count
+        assert model.layers[2].self_attn.v_proj is None
+        assert model.layers[2].self_attn.num_kv_heads == 1
+        assert model.layers[0].self_attn.v_proj is not None
+        assert model.layers[0].self_attn.num_kv_heads == 1  # TINY num_kv_heads
+        fixed_init_model(model, min_val=-0.1, max_val=0.1)
+        model.eval()
+        with torch.no_grad():
+            out = model(TOKENS)
+        assert torch.isfinite(out).all() and out.abs().max().item() <= 30.0 + 1e-4
+
+    def test_moe_hybrid_block(self):
+        """26B-A4B-style: hybrid dense+MoE on every layer; experts are not LoRA targets."""
+        cfg = {**TINY, "per_layer_dim": 0, "num_kv_shared_layers": 0,
+               "num_global_key_value_heads": 1, "attention_k_eq_v": True,
+               "enable_moe_block": True, "num_experts": 8, "top_k_experts": 2,
+               "moe_intermediate_size": 8}
+        model = gemma4(**cfg)
+        assert hasattr(model.layers[0], "router") and hasattr(model.layers[0], "experts")
+        assert model.layers[0].experts.gate_up_proj.shape == (8, 16, TINY["embed_dim"])
+        fixed_init_model(model, min_val=-0.05, max_val=0.05)
+        model.eval()
+        with torch.no_grad():
+            out = model(TOKENS)
+        assert torch.isfinite(out).all() and out.abs().max().item() <= 30.0 + 1e-4
+        # LoRA adapts attention only; router/experts stay full (frozen) base weights.
+        lora = lora_gemma4(["q_proj", "v_proj"], lora_rank=2, lora_alpha=4, **cfg)
+        adapters = get_adapter_params(lora)
+        assert adapters and not any("experts" in k or "router" in k for k in adapters)
