@@ -12,6 +12,8 @@ mapping is a pure rename — no q/k permutation. The text tower lives under
 vision/audio keys are ignored (text-only scope). ``lm_head.weight`` is tied to the token
 embedding and skipped. KV-shared layers legitimately have no k/v projection or norm keys.
 """
+import re
+
 import torch
 
 from torchtune.models.convert_weights import get_mapped_key
@@ -48,16 +50,40 @@ def _is_text_key(key: str) -> bool:
     return key.startswith(_P)
 
 
-def gemma4_hf_to_tune(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+def gemma4_hf_to_tune(
+    state_dict: dict[str, torch.Tensor],
+    *,
+    num_hidden_layers: int | None = None,
+    num_kv_shared_layers: int = 0,
+) -> dict[str, torch.Tensor]:
     """Convert an HF Gemma 4 state dict to torchtune's text-tower format.
 
-    Ignores vision/audio towers and the tied ``lm_head``. Shared-layer k/v keys are simply
-    absent from the HF checkpoint and need no special handling.
+    Ignores the vision/audio towers and the tied ``lm_head``. The last
+    ``num_kv_shared_layers`` layers reuse an earlier layer's K/V, so their k/v projection
+    and k/v norm weights (kept on disk by HF, but unused) are dropped to match the model —
+    otherwise they surface as unexpected keys during (LoRA) loading.
+
+    Args:
+        state_dict (dict[str, torch.Tensor]): HF state dict.
+        num_hidden_layers (int | None): number of text decoder layers. Required (with
+            ``num_kv_shared_layers``) to drop shared-layer k/v; if None, nothing is dropped.
+        num_kv_shared_layers (int): number of trailing KV-shared layers. Default 0.
     """
+    first_shared = (
+        num_hidden_layers - num_kv_shared_layers
+        if (num_hidden_layers is not None and num_kv_shared_layers)
+        else None
+    )
     converted = {}
     for key, value in state_dict.items():
         if not _is_text_key(key):
             continue  # skip vision_tower / audio_tower / embed_vision / embed_audio / lm_head
+        if first_shared is not None and (
+            ".k_proj" in key or ".v_proj" in key or ".k_norm" in key
+        ):
+            m = re.search(r"\.layers\.(\d+)\.", key)
+            if m and int(m.group(1)) >= first_shared:
+                continue  # KV-shared layer: no k/v projection or norm in the model
         converted[get_mapped_key(key, _GEMMA4_FROM_HF)] = value
     return converted
 

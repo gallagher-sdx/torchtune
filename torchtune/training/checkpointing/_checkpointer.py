@@ -698,10 +698,14 @@ class FullModelHFCheckpointer(_CheckpointerInterface):
         elif self._model_type == ModelType.GEMMA4:
             from torchtune.models.gemma4._convert_weights import gemma4_hf_to_tune
 
-            # Gemma 4 uses HF's half-split RoPE, so conversion is a pure rename (no
-            # head permutation and no per-head args needed).
+            # Gemma 4 uses HF's half-split RoPE, so conversion is a pure rename (no head
+            # permutation). Pass the text-tower layer counts so KV-shared layers' unused
+            # k/v weights are dropped. Config nests these under "text_config".
+            gemma4_text_cfg = self._config.get("text_config", self._config)
             converted_state_dict[training.MODEL_KEY] = gemma4_hf_to_tune(
                 merged_state_dict,
+                num_hidden_layers=gemma4_text_cfg.get("num_hidden_layers"),
+                num_kv_shared_layers=gemma4_text_cfg.get("num_kv_shared_layers", 0),
             )
         elif self._model_type == ModelType.T5_ENCODER:
             from torchtune.models.t5._convert_weights import t5_encoder_hf_to_tune
@@ -948,6 +952,11 @@ class FullModelHFCheckpointer(_CheckpointerInterface):
             elif self._model_type == ModelType.LLAMA4:
                 logger.warning(
                     "Saving Llama4 adapter weights to PEFT format is not supported, saving to torchtune format instead"
+                )
+            elif self._model_type == ModelType.GEMMA4:
+                logger.warning(
+                    "Saving Gemma4 adapter weights to PEFT format is not supported "
+                    "(HF-style module names + half-split RoPE), saving to torchtune format instead"
                 )
             else:
                 config = (
