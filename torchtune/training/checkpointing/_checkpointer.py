@@ -695,6 +695,14 @@ class FullModelHFCheckpointer(_CheckpointerInterface):
                 dim=self._config["hidden_size"],
                 head_dim=self._config.get("head_dim", None),
             )
+        elif self._model_type == ModelType.GEMMA4:
+            from torchtune.models.gemma4._convert_weights import gemma4_hf_to_tune
+
+            # Gemma 4 uses HF's half-split RoPE, so conversion is a pure rename (no
+            # head permutation and no per-head args needed).
+            converted_state_dict[training.MODEL_KEY] = gemma4_hf_to_tune(
+                merged_state_dict,
+            )
         elif self._model_type == ModelType.T5_ENCODER:
             from torchtune.models.t5._convert_weights import t5_encoder_hf_to_tune
 
@@ -859,6 +867,12 @@ class FullModelHFCheckpointer(_CheckpointerInterface):
                     num_kv_heads=self._config["num_key_value_heads"],
                     dim=self._config["hidden_size"],
                     head_dim=self._config.get("head_dim", None),
+                )
+            elif self._model_type == ModelType.GEMMA4:
+                from torchtune.models.gemma4._convert_weights import gemma4_tune_to_hf
+
+                state_dict[training.MODEL_KEY] = gemma4_tune_to_hf(
+                    state_dict[training.MODEL_KEY],
                 )
             elif self._model_type == ModelType.LLAMA4:
                 from torchtune.models.llama4._convert_weights import llama4_tune_to_hf
