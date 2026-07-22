@@ -1,19 +1,20 @@
-# Config for multi-device LoRA finetuning of the Gemma 4 E4B text tower
-# in lora_finetune_distributed.py.
+# Config for single-device QLoRA finetuning of the Gemma 4 E2B text tower
+# in lora_finetune_single_device.py.
 #
-# Prereq: download google/gemma-4-e4b-it (e.g. `tune download google/gemma-4-e4b-it`) and set
+# Prereq: download google/gemma-4-E2B-it (e.g. `tune download google/gemma-4-E2B-it`) and set
 # checkpointer.checkpoint_dir + tokenizer.path (or override on the CLI). The output
 # (unembedding) is tied to the token embedding, so it is NOT a LoRA target.
 #
 # Launch:
-#   tune run --nnodes 1 --nproc_per_node 2 lora_finetune_distributed --config gemma4/e4b_lora \
-#     checkpointer.checkpoint_dir=/path/to/gemma-4-e4b-it/ tokenizer.path=/path/to/gemma-4-e4b-it/tokenizer.json
+#   tune run lora_finetune_single_device --config gemma4/e2b_qlora_single_device \
+#     checkpointer.checkpoint_dir=/path/to/gemma-4-E2B-it/ tokenizer.path=/path/to/gemma-4-E2B-it/tokenizer.json
+# For a CPU smoke-test: append `device=cpu dtype=fp32 optimizer.fused=False`.
 
-output_dir: /tmp/torchtune/gemma4_e4b/lora
+output_dir: /tmp/torchtune/gemma4_e2b/qlora_single_device
 
 tokenizer:
   _component_: torchtune.models.gemma4.gemma4_tokenizer
-  path: /PATH/TO/gemma-4-e4b-it/tokenizer.json
+  path: /PATH/TO/gemma-4-E2B-it/tokenizer.json
   max_seq_len: 2048
 
 dataset:
@@ -30,7 +31,7 @@ dataset_val:
 batch_size_val: ${batch_size}
 
 model:
-  _component_: torchtune.models.gemma4.lora_gemma4_e4b
+  _component_: torchtune.models.gemma4.qlora_gemma4_e2b
   lora_attn_modules: ['q_proj', 'k_proj', 'v_proj', 'output_proj']
   apply_lora_to_mlp: True
   lora_rank: 32
@@ -39,7 +40,7 @@ model:
 
 checkpointer:
   _component_: torchtune.training.FullModelHFCheckpointer
-  checkpoint_dir: /PATH/TO/gemma-4-e4b-it/
+  checkpoint_dir: /PATH/TO/gemma-4-E2B-it/
   checkpoint_files: [model.safetensors]
   recipe_checkpoint: null
   output_dir: ${output_dir}
@@ -63,7 +64,7 @@ loss:
 batch_size: 4
 epochs: 1
 max_steps_per_epoch: null
-gradient_accumulation_steps: 1
+gradient_accumulation_steps: 8
 clip_grad_norm: null
 compile: False
 

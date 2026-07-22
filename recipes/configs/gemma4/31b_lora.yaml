@@ -1,19 +1,19 @@
-# Config for multi-device LoRA finetuning of the Gemma 4 E4B text tower
+# Config for multi-device LoRA finetuning of the Gemma 4 31B text tower
 # in lora_finetune_distributed.py.
 #
-# Prereq: download google/gemma-4-e4b-it (e.g. `tune download google/gemma-4-e4b-it`) and set
+# Prereq: download google/gemma-4-31b-it (e.g. `tune download google/gemma-4-31b-it`) and set
 # checkpointer.checkpoint_dir + tokenizer.path (or override on the CLI). The output
 # (unembedding) is tied to the token embedding, so it is NOT a LoRA target.
 #
 # Launch:
-#   tune run --nnodes 1 --nproc_per_node 2 lora_finetune_distributed --config gemma4/e4b_lora \
-#     checkpointer.checkpoint_dir=/path/to/gemma-4-e4b-it/ tokenizer.path=/path/to/gemma-4-e4b-it/tokenizer.json
+#   tune run --nnodes 1 --nproc_per_node 8 lora_finetune_distributed --config gemma4/31b_lora \
+#     checkpointer.checkpoint_dir=/path/to/gemma-4-31b-it/ tokenizer.path=/path/to/gemma-4-31b-it/tokenizer.json
 
-output_dir: /tmp/torchtune/gemma4_e4b/lora
+output_dir: /tmp/torchtune/gemma4_31b/lora
 
 tokenizer:
   _component_: torchtune.models.gemma4.gemma4_tokenizer
-  path: /PATH/TO/gemma-4-e4b-it/tokenizer.json
+  path: /PATH/TO/gemma-4-31b-it/tokenizer.json
   max_seq_len: 2048
 
 dataset:
@@ -30,17 +30,20 @@ dataset_val:
 batch_size_val: ${batch_size}
 
 model:
-  _component_: torchtune.models.gemma4.lora_gemma4_e4b
+  _component_: torchtune.models.gemma4.lora_gemma4_31b
   lora_attn_modules: ['q_proj', 'k_proj', 'v_proj', 'output_proj']
   apply_lora_to_mlp: True
-  lora_rank: 32
-  lora_alpha: 64
+  lora_rank: 16
+  lora_alpha: 32
   lora_dropout: 0.0
 
 checkpointer:
   _component_: torchtune.training.FullModelHFCheckpointer
-  checkpoint_dir: /PATH/TO/gemma-4-e4b-it/
-  checkpoint_files: [model.safetensors]
+  checkpoint_dir: /PATH/TO/gemma-4-31b-it/
+  checkpoint_files: [
+    model-00001-of-00002.safetensors,
+    model-00002-of-00002.safetensors,
+  ]
   recipe_checkpoint: null
   output_dir: ${output_dir}
   model_type: GEMMA4
@@ -60,7 +63,7 @@ lr_scheduler:
 loss:
   _component_: torch.nn.CrossEntropyLoss
 
-batch_size: 4
+batch_size: 2
 epochs: 1
 max_steps_per_epoch: null
 gradient_accumulation_steps: 1
