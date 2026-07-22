@@ -255,6 +255,7 @@ class Gemma4TextDecoder(nn.Module):
         num_experts: int = 0,
         top_k_experts: int = 0,
         moe_intermediate_size: int = 0,
+        activation_checkpointing: bool = False,
         lora_attn_modules: Optional[list] = None,
         apply_lora_to_mlp: bool = False,
         lora_rank: int = 0,
@@ -269,6 +270,7 @@ class Gemma4TextDecoder(nn.Module):
         self.has_ple = per_layer_dim > 0
         self.num_layers = num_layers
         self.final_logit_softcapping = final_logit_softcapping
+        self.activation_checkpointing = activation_checkpointing
         lora_attn_modules = lora_attn_modules or []
 
         self.layer_types = [
@@ -383,17 +385,21 @@ class Gemma4TextDecoder(nn.Module):
         masks = self._masks(s, tokens.device)
 
         shared_kv: dict = {}
+        ckpt = self.activation_checkpointing and self.training
         for i, layer in enumerate(self.layers):
             lt = self.layer_types[i]
             cos, sin = cos_sin[lt]
-            h = layer(
-                h,
-                per_layer_input=per_layer_inputs[:, :, i, :] if self.has_ple else None,
-                cos=cos,
-                sin=sin,
-                mask=masks[lt],
-                shared_kv=shared_kv,
-            )
+            pli = per_layer_inputs[:, :, i, :] if self.has_ple else None
+            if ckpt:
+                # Self-contained activation checkpointing (the stock recipe AC auto-wrap
+                # targets TransformerSelfAttentionLayer, which this custom layer is not).
+                h = torch.utils.checkpoint.checkpoint(
+                    layer, h, per_layer_input=pli, cos=cos, sin=sin, mask=masks[lt],
+                    shared_kv=shared_kv, use_reentrant=False,
+                )
+            else:
+                h = layer(h, per_layer_input=pli, cos=cos, sin=sin, mask=masks[lt],
+                          shared_kv=shared_kv)
 
         h = self.norm(h)
         logits = F.linear(h, self.tok_embeddings.weight).float()

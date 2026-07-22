@@ -1,20 +1,20 @@
-# Config for single-device QLoRA finetuning of the Gemma 4 26B-A4B text tower
-# in lora_finetune_single_device.py.
+# Config for single-device full finetuning of the Gemma 4 12B text tower
+# in full_finetune_single_device.py.
 #
-# Prereq: download google/gemma-4-26b-a4b-it (e.g. `tune download google/gemma-4-26b-a4b-it`) and set
-# checkpointer.checkpoint_dir + tokenizer.path (or override on the CLI). The output
-# (unembedding) is tied to the token embedding, so it is NOT a LoRA target.
+# Prereq: download google/gemma-4-12b-it (e.g. `tune download google/gemma-4-12b-it`) and set
+# checkpointer.checkpoint_dir + tokenizer.path (or override on the CLI).
+
 #
 # Launch:
-#   tune run lora_finetune_single_device --config gemma4/26b_a4b_qlora_single_device \
-#     checkpointer.checkpoint_dir=/path/to/gemma-4-26b-a4b-it/ tokenizer.path=/path/to/gemma-4-26b-a4b-it/tokenizer.json
+#   tune run full_finetune_single_device --config gemma4/12b_full_single_device \
+#     checkpointer.checkpoint_dir=/path/to/gemma-4-12b-it/ tokenizer.path=/path/to/gemma-4-12b-it/tokenizer.json
 # For a CPU smoke-test: append `device=cpu dtype=fp32 optimizer.fused=False`.
 
-output_dir: /tmp/torchtune/gemma4_26b_a4b/qlora_single_device
+output_dir: /tmp/torchtune/gemma4_12b/full_single_device
 
 tokenizer:
   _component_: torchtune.models.gemma4.gemma4_tokenizer
-  path: /PATH/TO/gemma-4-26b-a4b-it/tokenizer.json
+  path: /PATH/TO/gemma-4-12b-it/tokenizer.json
   max_seq_len: 2048
 
 dataset:
@@ -31,37 +31,27 @@ dataset_val:
 batch_size_val: ${batch_size}
 
 model:
-  _component_: torchtune.models.gemma4.qlora_gemma4_26b_a4b
-  lora_attn_modules: ['q_proj', 'k_proj', 'v_proj', 'output_proj']
-  apply_lora_to_mlp: True
-  lora_rank: 16
-  lora_alpha: 32
-  lora_dropout: 0.0
-  # Self-contained activation checkpointing (recipe-level AC below is off).
+  _component_: torchtune.models.gemma4.gemma4_12b
+  # Self-contained activation checkpointing (recipe-level AC below is left
+  # off, since its auto-wrap policy doesn't match the gemma4 decoder layer).
   activation_checkpointing: True
 
 checkpointer:
   _component_: torchtune.training.FullModelHFCheckpointer
-  checkpoint_dir: /PATH/TO/gemma-4-26b-a4b-it/
+  checkpoint_dir: /PATH/TO/gemma-4-12b-it/
   checkpoint_files: [
-    model-00001-of-00006.safetensors,
-    model-00002-of-00006.safetensors,
-    model-00003-of-00006.safetensors,
-    model-00004-of-00006.safetensors,
-    model-00005-of-00006.safetensors,
-    model-00006-of-00006.safetensors,
+    model-00001-of-00002.safetensors,
+    model-00002-of-00002.safetensors,
   ]
   recipe_checkpoint: null
   output_dir: ${output_dir}
   model_type: GEMMA4
 resume_from_checkpoint: False
-# Adapter-only save (Gemma 4 saves LoRA in torchtune format; no PEFT export).
-save_adapter_weights_only: True
 
 optimizer:
   _component_: torch.optim.AdamW
   fused: True
-  lr: 2e-4
+  lr: 2e-5
 lr_scheduler:
   _component_: torchtune.training.lr_schedulers.get_cosine_schedule_with_warmup
   num_warmup_steps: 10
@@ -69,12 +59,13 @@ lr_scheduler:
 loss:
   _component_: torch.nn.CrossEntropyLoss
 
-batch_size: 2
+batch_size: 1
 epochs: 1
 max_steps_per_epoch: null
 gradient_accumulation_steps: 1
 clip_grad_norm: null
 compile: False
+optimizer_in_bwd: True  # fuse optim step into backward; saves memory, needs grad_accum=1
 
 device: cuda
 dtype: bf16

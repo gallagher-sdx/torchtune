@@ -104,6 +104,33 @@ class TestGemma4:
             out = model(TOKENS)
         assert torch.isfinite(out).all() and out.abs().max().item() <= 30.0 + 1e-4
 
+    def test_activation_checkpointing_is_gradient_identical(self):
+        """The model's self-contained activation checkpointing must not change math:
+        forward and gradients must match the non-checkpointed model bit-for-bit."""
+        for extra in (
+            {"per_layer_dim": 0, "num_kv_shared_layers": 0},                     # dense/no-share
+            {"per_layer_dim": 8, "num_kv_shared_layers": 2},                     # PLE + KV-share
+            {"per_layer_dim": 0, "num_global_key_value_heads": 1,               # MoE + k_eq_v
+             "attention_k_eq_v": True, "enable_moe_block": True,
+             "num_experts": 8, "top_k_experts": 2, "moe_intermediate_size": 8},
+        ):
+            cfg = {**TINY, **extra}
+            torch.manual_seed(0)
+            a = gemma4(**cfg, activation_checkpointing=False)
+            torch.manual_seed(0)
+            b = gemma4(**cfg, activation_checkpointing=True)
+            b.load_state_dict(a.state_dict())
+            a.train()
+            b.train()
+            oa = a(TOKENS)
+            oa.sum().backward()
+            ob = b(TOKENS)
+            ob.sum().backward()
+            assert torch.allclose(oa, ob, atol=1e-6)
+            for (_, pa), (_, pb) in zip(a.named_parameters(), b.named_parameters()):
+                if pa.grad is not None:
+                    assert torch.allclose(pa.grad, pb.grad, atol=1e-6)
+
     def test_vision_embedder_and_scatter(self):
         """12B Unified encoder-free vision path: patch embedder + projection + early fusion."""
         from torchtune.models.gemma4._multimodal import (

@@ -36,6 +36,8 @@ model:
   lora_rank: 16
   lora_alpha: 32
   lora_dropout: 0.0
+  # Self-contained activation checkpointing (recipe-level AC below is off).
+  activation_checkpointing: True
 
 checkpointer:
   _component_: torchtune.training.FullModelHFCheckpointer
@@ -48,7 +50,7 @@ checkpointer:
   output_dir: ${output_dir}
   model_type: GEMMA4
 resume_from_checkpoint: False
-# Adapter-only save (Gemma 4 saves LoRA in torchtune format; PEFT export is not supported).
+# Adapter-only save (Gemma 4 saves LoRA in torchtune format; no PEFT export).
 save_adapter_weights_only: True
 
 optimizer:
@@ -58,8 +60,7 @@ optimizer:
 lr_scheduler:
   _component_: torchtune.training.lr_schedulers.get_cosine_schedule_with_warmup
   num_warmup_steps: 10
-# Our gemma4 decoder returns logits, so use plain CrossEntropyLoss (not the fused
-# LinearCrossEntropyLoss, which expects hidden states).
+# gemma4 decoder returns logits -> plain CrossEntropyLoss (not the fused LinearCrossEntropyLoss).
 loss:
   _component_: torch.nn.CrossEntropyLoss
 
@@ -72,7 +73,9 @@ compile: False
 
 device: cuda
 dtype: bf16
-enable_activation_checkpointing: True
+# gemma4 uses the model's own `activation_checkpointing` arg (set above); the recipe-level
+# AC auto-wrap targets TransformerSelfAttentionLayer, which our custom layer is not.
+enable_activation_checkpointing: False
 enable_activation_offloading: False
 
 metric_logger:
