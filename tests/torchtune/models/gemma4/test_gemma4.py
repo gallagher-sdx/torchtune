@@ -104,6 +104,31 @@ class TestGemma4:
             out = model(TOKENS)
         assert torch.isfinite(out).all() and out.abs().max().item() <= 30.0 + 1e-4
 
+    def test_vision_embedder_and_scatter(self):
+        """12B Unified encoder-free vision path: patch embedder + projection + early fusion."""
+        from torchtune.models.gemma4._multimodal import (
+            Gemma4MultimodalEmbedder,
+            Gemma4VisionEmbedder,
+            scatter_multimodal_embeddings,
+        )
+
+        vision = Gemma4VisionEmbedder(patch_dim=12, mm_embed_dim=16, mm_posemb_size=8)
+        proj = Gemma4MultimodalEmbedder(multimodal_hidden=16, text_hidden=16)
+        fixed_init_model(vision, min_val=-0.1, max_val=0.1)
+        fixed_init_model(proj, min_val=-0.1, max_val=0.1)
+        vision.eval()
+        proj.eval()
+        pixel_values = torch.arange(1 * 4 * 12, dtype=torch.float).reshape(1, 4, 12) / 48.0
+        pos = torch.tensor([[[0, 0], [1, 0], [0, 1], [1, 1]]])
+        with torch.no_grad():
+            feats = proj(vision(pixel_values, pos))
+        assert feats.shape == (1, 4, 16) and torch.isfinite(feats).all()
+        # early fusion: scatter 2 image features into the 2 image-token slots
+        tokens = torch.tensor([[5, 99, 99, 7]])  # 99 == image token
+        emb = torch.zeros(1, 4, 16)
+        out = scatter_multimodal_embeddings(emb, tokens, feats[0, :2], token_id=99)
+        assert torch.equal(out[0, 0], emb[0, 0]) and not torch.equal(out[0, 1], emb[0, 1])
+
     def test_moe_hybrid_block(self):
         """26B-A4B-style: hybrid dense+MoE on every layer; experts are not LoRA targets."""
         cfg = {**TINY, "per_layer_dim": 0, "num_kv_shared_layers": 0,
