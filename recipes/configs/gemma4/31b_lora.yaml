@@ -1,0 +1,101 @@
+# Config for multi-device LoRA finetuning of the Gemma 4 31B text tower
+# in lora_finetune_distributed.py.
+#
+# Prereq: download google/gemma-4-31b-it (e.g. `tune download google/gemma-4-31b-it`) and set
+# checkpointer.checkpoint_dir + tokenizer.path (or override on the CLI). The output
+# (unembedding) is tied to the token embedding, so it is NOT a LoRA target.
+#
+# Launch:
+#   tune run --nnodes 1 --nproc_per_node 8 lora_finetune_distributed --config gemma4/31b_lora \
+#     checkpointer.checkpoint_dir=/path/to/gemma-4-31b-it/ tokenizer.path=/path/to/gemma-4-31b-it/tokenizer.json
+
+output_dir: /tmp/torchtune/gemma4_31b/lora
+
+tokenizer:
+  _component_: torchtune.models.gemma4.gemma4_tokenizer
+  path: /PATH/TO/gemma-4-31b-it/tokenizer.json
+  max_seq_len: 2048
+
+dataset:
+  _component_: torchtune.datasets.alpaca_cleaned_dataset
+  packed: False
+  split: train[:95%]
+seed: 42
+shuffle: True
+
+run_val_every_n_steps: null
+dataset_val:
+  _component_: torchtune.datasets.alpaca_cleaned_dataset
+  split: train[95%:]
+batch_size_val: ${batch_size}
+
+model:
+  _component_: torchtune.models.gemma4.lora_gemma4_31b
+  lora_attn_modules: ['q_proj', 'k_proj', 'v_proj', 'output_proj']
+  apply_lora_to_mlp: True
+  lora_rank: 16
+  lora_alpha: 32
+  lora_dropout: 0.0
+  # Self-contained activation checkpointing (recipe-level AC below is off).
+  activation_checkpointing: True
+
+checkpointer:
+  _component_: torchtune.training.FullModelHFCheckpointer
+  checkpoint_dir: /PATH/TO/gemma-4-31b-it/
+  checkpoint_files: [
+    model-00001-of-00002.safetensors,
+    model-00002-of-00002.safetensors,
+  ]
+  recipe_checkpoint: null
+  output_dir: ${output_dir}
+  model_type: GEMMA4
+resume_from_checkpoint: False
+# Adapter-only save (Gemma 4 saves LoRA in torchtune format; no PEFT export).
+save_adapter_weights_only: True
+
+optimizer:
+  _component_: torch.optim.AdamW
+  fused: True
+  lr: 2e-4
+lr_scheduler:
+  _component_: torchtune.training.lr_schedulers.get_cosine_schedule_with_warmup
+  num_warmup_steps: 10
+# gemma4 decoder returns logits -> plain CrossEntropyLoss (not the fused LinearCrossEntropyLoss).
+loss:
+  _component_: torch.nn.CrossEntropyLoss
+
+batch_size: 2
+epochs: 1
+max_steps_per_epoch: null
+gradient_accumulation_steps: 1
+clip_grad_norm: null
+compile: False
+
+device: cuda
+dtype: bf16
+# gemma4 uses the model's own `activation_checkpointing` arg (set above); the recipe-level
+# AC auto-wrap targets TransformerSelfAttentionLayer, which our custom layer is not.
+enable_activation_checkpointing: False
+enable_activation_offloading: False
+
+metric_logger:
+  _component_: torchtune.training.metric_logging.DiskLogger
+  log_dir: ${output_dir}/logs
+log_every_n_steps: 1
+log_peak_memory_stats: True
+log_level: INFO
+
+profiler:
+  _component_: torchtune.training.setup_torch_profiler
+  enabled: False
+  output_dir: ${output_dir}/profiling_outputs
+  cpu: True
+  cuda: True
+  profile_memory: False
+  with_stack: False
+  record_shapes: True
+  with_flops: False
+  wait_steps: 5
+  warmup_steps: 3
+  active_steps: 2
+  num_cycles: 1
