@@ -65,6 +65,26 @@ _12B = dict(
 )
 
 
+_E2B = dict(
+    vocab_size=262_144, num_layers=35, num_heads=8, num_kv_heads=1,
+    head_dim=256, global_head_dim=512, embed_dim=1536, intermediate_dim=6144,
+    per_layer_dim=256, num_kv_shared_layers=20, sliding_window=512,
+    norm_eps=1e-6, final_logit_softcapping=30.0,
+    rope_base_sliding=10_000.0, rope_base_global=1_000_000.0,
+    global_partial_rotary_factor=0.25, global_every=6,
+)
+
+
+def gemma4_e2b() -> Gemma4TextDecoder:
+    """Gemma 4 E2B text tower (google/gemma-4-E2B-it text_config).
+
+    Same architecture as E4B (Per-Layer Embeddings, KV-sharing, hybrid attention) with
+    smaller dims (35 layers, hidden 1536, MQA). The E2B/E4B pair is a MatFormer nesting;
+    this builds the standalone E2B text decoder.
+    """
+    return gemma4(**_E2B)
+
+
 def gemma4_e4b() -> Gemma4TextDecoder:
     """Gemma 4 E4B text tower (google/gemma-4-e4b-it text_config)."""
     return gemma4(**_E4B)
@@ -127,6 +147,20 @@ def lora_gemma4_31b(
                  lora_dropout, use_dora, quantize_base)
 
 
+def lora_gemma4_e2b(
+    lora_attn_modules: list[LORA_ATTN_MODULES],
+    apply_lora_to_mlp: bool = False,
+    lora_rank: int = 8,
+    lora_alpha: float = 16,
+    lora_dropout: float = 0.0,
+    use_dora: bool = False,
+    quantize_base: bool = False,
+) -> Gemma4TextDecoder:
+    """Gemma 4 E2B text tower with LoRA."""
+    return _lora(_E2B, lora_attn_modules, apply_lora_to_mlp, lora_rank, lora_alpha,
+                 lora_dropout, use_dora, quantize_base)
+
+
 def lora_gemma4_12b(
     lora_attn_modules: list[LORA_ATTN_MODULES],
     apply_lora_to_mlp: bool = False,
@@ -155,6 +189,8 @@ def lora_gemma4_26b_a4b(
                  lora_dropout, use_dora, quantize_base)
 
 
+qlora_gemma4_e2b = partial(lora_gemma4_e2b, quantize_base=True)
+qlora_gemma4_e2b.__doc__ = "Gemma 4 E2B with QLoRA (NF4-quantized base weights)."
 qlora_gemma4_12b = partial(lora_gemma4_12b, quantize_base=True)
 qlora_gemma4_12b.__doc__ = "Gemma 4 12B with QLoRA (NF4-quantized base weights)."
 qlora_gemma4_e4b = partial(lora_gemma4_e4b, quantize_base=True)
